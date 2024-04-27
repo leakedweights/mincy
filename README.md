@@ -1,4 +1,4 @@
-# Improved Methods for Consistency Training in JAX
+# Improved Techniques for Training Consistency Models
 
 [![arXiv](https://img.shields.io/badge/arXiv-2310.14189-b31b1b.svg)](https://arxiv.org/abs/2310.14189)
 <a target="_blank" href="https://colab.research.google.com/github/leakedweights/mincy/blob/main/notebooks/colab.ipynb">
