@@ -2,6 +2,7 @@ import jax
 import jax.numpy as jnp
 import flax.linen as nn
 
+import string
 from typing import Optional, Callable, Sequence, Any
 
 Shape = int | Sequence
@@ -52,12 +53,12 @@ class ResnetBlock(nn.Module):
             pos_emb = self.nonlinearity(pos_emb)
             pos_embed_proj = nn.DenseGeneral(self.pos_embed_dim)(pos_emb)[
                 :, None, None, :]
-            
+
             h = x
 
             if self.transform is not None:
-                x = nn.Conv(self.features, [1, 1])(x)
                 x = self.transform(x)
+                x = nn.Conv(self.features, [1, 1])(x)
 
             h = ConvBlock(self.features, self.kernel_size, dropout=0, num_groups=self.num_groups,
                           nonlinearity=self.nonlinearity, transform=self.conv_transform)(h, deterministic)
@@ -71,3 +72,67 @@ class ResnetBlock(nn.Module):
                 x = x + h
 
             return x
+
+
+def default_init(scale=1.0):
+    scale = 1e-10 if scale == 0 else scale
+    return jax.nn.initializers.variance_scaling(scale, "fan_avg", "uniform")
+
+
+def _einsum(a, b, c, x, y):
+    einsum_str = "{},{}->{}".format("".join(a), "".join(b), "".join(c))
+    return jnp.einsum(einsum_str, x, y)
+
+
+def contract_inner(x, y):
+    x_chars = list(string.ascii_lowercase[: len(x.shape)])
+    y_chars = list(string.ascii_uppercase[: len(y.shape)])
+    assert len(x_chars) == len(x.shape) and len(y_chars) == len(y.shape)
+    y_chars[0] = x_chars[-1]
+    out_chars = x_chars[:-1] + y_chars[1:]
+    return _einsum(x_chars, y_chars, out_chars, x, y)
+
+
+class NIN(nn.Module):
+    """https://arxiv.org/abs/2011.13456"""
+
+    num_units: int
+    init_scale: float = 0.1
+
+    @nn.compact
+    def __call__(self, x):
+        in_dim = int(x.shape[-1])
+        W = self.param(
+            "W", default_init(scale=self.init_scale), (in_dim, self.num_units)
+        )
+        b = self.param("b", jax.nn.initializers.zeros, (self.num_units,))
+        y = contract_inner(x, W) + b
+        assert y.shape == x.shape[:-1] + (self.num_units,)
+        return y
+
+
+class AttentionBlock(nn.Module):
+    init_scale: float = 0.0
+    variant: str = "NCSN++"
+
+    @nn.compact
+    def __call__(self, x):
+        if self.variant == "NCSN++":
+            def transform(units, init_scale=0.1): return NIN(units, init_scale)
+        else:
+            transform = nn.Identity()
+
+        b, h, w, c = x.shape
+        num_groups = min(c // 4, 32)
+
+        attn = nn.GroupNorm(num_groups)(x)
+        Q = transform(c)(x)
+        K = transform(c)(x)
+        V = transform(c)(x)
+
+        attn = jnp.matmul(Q, K.transpose(0, 1, 3, 2)) / (c * jnp.sqrt(1/2))
+        attn = nn.softmax(attn / jnp.sqrt(c), axis=-1)
+        attn = jnp.matmul(attn, V)
+        attn = transform(c, init_scale=self.init_scale)(attn)
+
+        return attn + x
