@@ -8,17 +8,49 @@ from typing import Optional, Callable, Sequence, Any
 Shape = int | Sequence
 
 
+class Upsample(nn.Module):
+    kernel_size: tuple
+    out_channels: Optional[int] = None
+
+    @nn.compact
+    def __call__(self, x):
+        b, h, w, c = x.shape
+
+        out_channels = self.out_channels if self.out_channels is not None else c
+
+        x = jax.image.resize(x, (b, 2 * h, 2 * w, c), "nearest")
+        x = nn.Conv(features=out_channels,
+                    kernel_size=self.kernel_size)(x)
+        return x
+
+
+class Downsample(nn.Module):
+    kernel_size: tuple
+    out_channels: Optional[int] = None
+
+    @nn.compact
+    def __call__(self, x):
+        b, h, w, c = x.shape
+        out_channels = self.out_channels if self.out_channels is not None else c
+
+        x = nn.Conv(features=out_channels,
+                    kernel_size=self.kernel_size,
+                    strides=(2, 2))(x)
+        return x
+
+
 class ConvBlock(nn.Module):
     features: int
     kernel_size: Shape
     dropout: float
-    num_groups: int
     nonlinearity: Callable
     transform: Optional[Callable] = None
 
     @nn.compact
     def __call__(self, x, deterministic: bool):
-        x = nn.GroupNorm(self.num_groups)(x)
+
+        num_groups = min(x.shape[-1] // 4, 32)
+        x = nn.GroupNorm(num_groups)(x)
         x = nn.Dropout(rate=self.dropout)(x, deterministic)
         x = self.nonlinearity(x)
 
@@ -36,8 +68,7 @@ class ResnetBlock(nn.Module):
     features: int
     kernel_size: Any
     dropout: float
-    num_groups: int
-    pos_embed_dim: int
+    nonlinearity: Callable
     transform: Optional[Callable] = None
     conv_transform: Optional[Callable] = None
 
@@ -51,19 +82,20 @@ class ResnetBlock(nn.Module):
 
         if self.variant == "BigGAN++":
             pos_emb = self.nonlinearity(pos_emb)
-            pos_embed_proj = nn.DenseGeneral(self.pos_embed_dim)(pos_emb)[
+            pos_embed_proj = nn.DenseGeneral(self.features)(pos_emb)[
                 :, None, None, :]
 
             h = x
 
-            if self.transform is not None:
-                x = self.transform(x)
+            if self.transform is not None or x.shape[-1] != self.features:
+                if self.transform is not None:
+                    x = self.transform(x)
                 x = nn.Conv(self.features, [1, 1])(x)
 
-            h = ConvBlock(self.features, self.kernel_size, dropout=0, num_groups=self.num_groups,
+            h = ConvBlock(self.features, self.kernel_size, dropout=0.0,
                           nonlinearity=self.nonlinearity, transform=self.conv_transform)(h, deterministic)
             h += pos_embed_proj
-            h = ConvBlock(features=self.features, kernel_size=self.kernel_size, num_groups=self.num_groups,
+            h = ConvBlock(features=self.features, kernel_size=self.kernel_size,
                           nonlinearity=self.nonlinearity, dropout=self.dropout)(h, deterministic)
 
             if self.rescale:
@@ -116,7 +148,7 @@ class AttentionBlock(nn.Module):
     variant: str = "NCSN++"
 
     @nn.compact
-    def __call__(self, x):
+    def __call__(self, x, *args, **kwargs):
         if self.variant == "NCSN++":
             def transform(units, init_scale=0.1): return NIN(units, init_scale)
         else:

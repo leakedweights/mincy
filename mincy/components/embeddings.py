@@ -24,7 +24,7 @@ def sinusoidal_emb(timesteps: jax.Array, embedding_dim: int):
 
 
 class FourierEmbedding(nn.Module):
-    """from https://github.com/openai/consistency_models_cifar10/"""
+    """https://github.com/openai/consistency_models_cifar10/"""
     embedding_size: int = 256
     scale: float = 1.0
 
