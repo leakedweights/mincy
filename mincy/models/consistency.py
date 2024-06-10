@@ -8,14 +8,13 @@ from ..components.solvers import euler
 from .utils import cast_dim
 
 
-# @partial(jax.jit, static_argnums=(2,))
 def pseudo_huber_loss(x: jax.Array, y: jax.Array, c_data: float):
     loss = (x - y) ** 2
     loss = jnp.sqrt(loss + c_data**2) - c_data
     return loss
 
 
-# @partial(jax.jit, static_argnums=(2, 3))
+@partial(jax.jit, static_argnums=(2, 3))
 def consistency_fn(xt, sigma, sigma_data, sigma_min, denoising_fn):
     cin = jnp.pow((sigma**2 + sigma_data**2), -0.5)
     cin = cast_dim(cin, xt.ndim)
@@ -34,7 +33,7 @@ def consistency_fn(xt, sigma, sigma_data, sigma_min, denoising_fn):
     return out, consistency_out
 
 
-# @partial(jax.jit, static_argnums=(5, 6))
+@partial(jax.jit, static_argnums=(5, 6))
 def training_consistency(t1, t2, x0, noise, denoising_fn, sigma_data, sigma_min):
     t1_noise_dim = cast_dim(t1, noise.ndim)
     t2_noise_dim = cast_dim(t2, noise.ndim)
