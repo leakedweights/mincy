@@ -1,11 +1,11 @@
 import jax
 import jax.numpy as jnp
-from jax import random
 from flax import linen as nn
 
 from typing import Optional, Callable
+from functools import partial
 
-from ..components.blocks import ResnetBlock, AttentionBlock, ConvBlock, Upsample, Downsample
+from ..components.blocks import ResnetBlock, AttentionBlock, Upsample, Downsample
 from ..components.embeddings import FourierEmbedding, sinusoidal_emb
 
 
@@ -29,6 +29,13 @@ class UNet(nn.Module):
     def __call__(self, x: jax.Array, t: jax.Array, train: bool = True):
         b, h, w, c = x.shape
 
+        ParameterizedResBlock = partial(ResnetBlock,
+                                        variant=self.resblock_variant,
+                                        kernel_size=self.kernel_size,
+                                        rescale=self.rescale_skip_conns,
+                                        nonlinearity=self.nonlinearity,
+                                        dropout=self.dropout)
+
         input_layer = nn.Conv(features=self.num_init_channels,
                               kernel_size=self.kernel_size)
 
@@ -41,13 +48,8 @@ class UNet(nn.Module):
             num_channels = self.num_init_channels * channel_mult
 
             for _ in range(self.num_res_blocks):
-                layer.append(ResnetBlock(
-                    features=num_channels,
-                    variant=self.resblock_variant,
-                    kernel_size=self.kernel_size,
-                    rescale=self.rescale_skip_conns,
-                    nonlinearity=self.nonlinearity,
-                    dropout=self.dropout,
+                layer.append(ParameterizedResBlock(
+                    features=num_channels
                 ))
 
                 if channel_mult in self.attention_mults and self.sandwich_attention:
@@ -59,13 +61,8 @@ class UNet(nn.Module):
                 layer.append(AttentionBlock())
 
             if self.downsample_last_dim or not is_last:
-                layer.append(ResnetBlock(
+                layer.append(ParameterizedResBlock(
                     features=num_channels,
-                    kernel_size=self.kernel_size,
-                    rescale=self.rescale_skip_conns,
-                    nonlinearity=self.nonlinearity,
-                    variant=self.resblock_variant,
-                    dropout=self.dropout,
                     transform=Downsample(
                         out_channels=num_channels, kernel_size=self.kernel_size),
                     conv_transform=Downsample(
@@ -77,49 +74,25 @@ class UNet(nn.Module):
         num_bottom_channels = self.num_init_channels * self.channel_mults[-1]
 
         bottom_layers = [
-            ResnetBlock(
-                features=num_bottom_channels,
-                kernel_size=self.kernel_size,
-                variant=self.resblock_variant,
-                rescale=self.rescale_skip_conns,
-                nonlinearity=self.nonlinearity,
-                dropout=self.dropout,
-            ),
+            ParameterizedResBlock(features=num_bottom_channels),
             AttentionBlock(),
-            ResnetBlock(
-                features=num_bottom_channels,
-                kernel_size=self.kernel_size,
-                variant=self.resblock_variant,
-                rescale=self.rescale_skip_conns,
-                nonlinearity=self.nonlinearity,
-                dropout=self.dropout,
-            )]
+            ParameterizedResBlock(features=num_bottom_channels)]
 
         for i, channel_mult in enumerate(list(reversed(self.channel_mults))):
             layer = []
             num_channels = self.num_init_channels * channel_mult
 
             for _ in range(self.num_res_blocks + 1):
-                layer.append(ResnetBlock(
-                    features=num_channels,
-                    kernel_size=self.kernel_size,
-                    rescale=self.rescale_skip_conns,
-                    nonlinearity=self.nonlinearity,
-                    variant=self.resblock_variant,
-                    dropout=self.dropout,
+                layer.append(ParameterizedResBlock(
+                    features=num_channels
                 ))
 
                 if channel_mult in self.attention_mults and not self.sandwich_attention:
                     layer.append(AttentionBlock())
 
             if self.downsample_last_dim or i != 0:
-                layer.append(ResnetBlock(
+                layer.append(ParameterizedResBlock(
                     features=num_channels,
-                    kernel_size=self.kernel_size,
-                    variant=self.resblock_variant,
-                    rescale=self.rescale_skip_conns,
-                    nonlinearity=self.nonlinearity,
-                    dropout=self.dropout,
                     transform=Upsample(
                         out_channels=num_channels, kernel_size=self.kernel_size),
                     conv_transform=Upsample(

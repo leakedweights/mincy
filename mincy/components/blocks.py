@@ -82,6 +82,7 @@ class ResnetBlock(nn.Module):
 
         if self.variant == "BigGAN++":
             pos_emb = self.nonlinearity(pos_emb)
+
             pos_embed_proj = nn.DenseGeneral(self.features)(pos_emb)[
                 :, None, None, :]
 
@@ -94,7 +95,9 @@ class ResnetBlock(nn.Module):
 
             h = ConvBlock(self.features, self.kernel_size, dropout=0.0,
                           nonlinearity=self.nonlinearity, transform=self.conv_transform)(h, deterministic)
+
             h += pos_embed_proj
+
             h = ConvBlock(features=self.features, kernel_size=self.kernel_size,
                           nonlinearity=self.nonlinearity, dropout=self.dropout)(h, deterministic)
 
