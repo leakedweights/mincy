@@ -6,23 +6,21 @@ from scipy.special import erf
 from functools import partial
 
 
-@partial(jax.jit, static_argnums=(1, 2, 3))
 def discretize(step, s0, s1, max_steps):
     k_prime = jnp.floor(max_steps / (jnp.log2(jnp.floor(s1 / s0)) + 1))
     N = s0 * jnp.pow(2, jnp.floor(step / k_prime))
-    N = jnp.min(jnp.array([N, s1])).astype(int)
+    N = jnp.min(jnp.array([N, s1]))
     return N + 1
 
 
-@partial(jax.jit, static_argnums=(2, 3, 4))
-def karras_levels(i, N, sigma_min, sigma_max, rho):
-    levels = sigma_max ** (1/rho) + (i / (N-1)) * \
+def karras_levels(N, sigma_min, sigma_max, rho):
+    discretized_steps = jnp.arange(1, N)
+    levels = sigma_max ** (1/rho) + (discretized_steps / (N-1)) * \
         (sigma_min ** (1/rho) - sigma_max ** (1/rho))
     levels = levels ** (rho)
     return levels
 
 
-@partial(jax.jit, static_argnums=(2, 3, 4))
 def sample_timesteps(key, noise_levels, shape, p_mean, p_std):
     erf_1 = erf((jnp.log(noise_levels[:-1]) - p_mean) / (jnp.sqrt(2) * p_std))
     erf_2 = erf((jnp.log(noise_levels[1:]) - p_mean) / (jnp.sqrt(2) * p_std))

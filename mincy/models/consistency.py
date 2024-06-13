@@ -14,8 +14,7 @@ def pseudo_huber_loss(x: jax.Array, y: jax.Array, c_data: float):
     return loss
 
 
-@partial(jax.jit, static_argnums=(2, 3))
-def consistency_fn(xt, sigma, sigma_data, sigma_min, denoising_fn):
+def consistency_fn(xt, sigma, sigma_data, sigma_min, state):
     cin = jnp.pow((sigma**2 + sigma_data**2), -0.5)
     cin = cast_dim(cin, xt.ndim)
 
@@ -27,14 +26,16 @@ def consistency_fn(xt, sigma, sigma_data, sigma_min, denoising_fn):
     cskip = cast_dim(cskip, xt.ndim)
 
     scaled_sigma = 1e4 * 0.25 * jnp.log(sigma + 1e-44)
-    out = denoising_fn(cin * xt, scaled_sigma)
+    out = state.apply_fn(cin * xt, scaled_sigma, params=state.params)
     consistency_out = cout * out + cskip * xt
 
     return out, consistency_out
 
 
-@partial(jax.jit, static_argnums=(5, 6))
-def training_consistency(t1, t2, x0, noise, denoising_fn, sigma_data, sigma_min):
+def training_consistency(t1, t2, x0, noise, state, sigma_data, sigma_min):
+
+    jax.debug.print('state = {state}', state=state)
+
     t1_noise_dim = cast_dim(t1, noise.ndim)
     t2_noise_dim = cast_dim(t2, noise.ndim)
 
@@ -42,9 +43,9 @@ def training_consistency(t1, t2, x0, noise, denoising_fn, sigma_data, sigma_min)
     xt2 = euler(xt1, t1_noise_dim, t2_noise_dim, x0)
 
     _, xt1_consistency = consistency_fn(
-        xt1, t1, sigma_data, sigma_min, denoising_fn)
+        xt1, t1, sigma_data, sigma_min, state)
     _, xt2_consistency = consistency_fn(
-        xt2, t2, sigma_data, sigma_min, denoising_fn)
+        xt2, t2, sigma_data, sigma_min, state)
 
     return xt1_consistency, xt2_consistency
 
