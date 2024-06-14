@@ -2,7 +2,6 @@ import jax
 import jax.numpy as jnp
 from jax import random
 from flax import linen as nn
-from flax.core import FrozenDict
 from flax.training import train_state
 from torch.utils.data import DataLoader
 from flax.jax_utils import replicate, unreplicate
@@ -13,31 +12,51 @@ from ..components.schedule import *
 from tqdm import trange
 from typing import Any
 
-@partial(jax.pmap, axis_name="batch", static_broadcasted_argnums=(6,))
-def train_step(random_key: Any, state: train_state.TrainState,
-                x: jax.Array, y: jax.Array, t1, t2, config: dict):
+
+@partial(jax.pmap, axis_name="batch", static_broadcasted_argnums=(6, 7, 8))
+def train_step(random_key: Any,
+               state: train_state.TrainState,
+               x: jax.Array,
+               y: jax.Array,
+               t1: jax.Array,
+               t2: jax.Array,
+               sigma_data: float,
+               sigma_min: float,
+               huber_const: float):
 
     data_dim = jnp.prod(jnp.array(x.shape[1:]))
-    c_data = config["huber_const"] * jnp.sqrt(data_dim)
+    c_data = huber_const * jnp.sqrt(data_dim)
 
     noise = random.normal(random_key, x.shape)
 
-    xt1, xt2 = training_consistency(
-        t1,
-        t2,
-        x,
-        noise,
-        state,
-        config["sigma_data"],
-        config["sigma_min"]
-    )
+    @jax.jit
+    def loss_fn(params):
+        xt1, xt2 = training_consistency(
+            t1,
+            t2,
+            x,
+            noise,
+            state.apply_fn,
+            params,
+            sigma_data,
+            sigma_min
+        )
 
-    loss, grads = jax.value_and_grad(
-        pseudo_huber_loss)(xt1, xt2, c_data=c_data)
+        loss = pseudo_huber_loss(xt2, xt1, c_data)
+        weight = cast_dim((1 / (t2 - t1)), loss.ndim)
+
+        return jnp.mean(weight * loss)
+
+    
+    loss, grads = jax.value_and_grad(loss_fn)(state.params)
+    grads = jax.lax.pmean(grads, "batch")
     loss = jax.lax.pmean(loss, "batch")
+
+    jax.debug.print('loss = {loss}', loss=loss)
 
     state = state.apply_gradients(grads=grads)
     return state, loss
+
 
 class ConsistencyTrainer:
 
@@ -90,18 +109,26 @@ class ConsistencyTrainer:
 
                 device_keys = jnp.array(device_keys)
 
-                consistency_config = FrozenDict(self.consistency_config)
+                config = self.consistency_config
 
                 N = discretize(
-                    step, consistency_config["s0"], consistency_config["s1"], train_steps)
+                    step, config["s0"], config["s1"], train_steps)
 
                 noise_levels = karras_levels(
-                    N, consistency_config["sigma_min"], consistency_config["sigma_max"], consistency_config["rho"])
+                    N, config["sigma_min"], config["sigma_max"], config["rho"])
 
                 t1, t2 = sample_timesteps(
-                    schedule_key, noise_levels, x_parallel.shape[:2], consistency_config["p_mean"], consistency_config["p_std"])
+                    schedule_key, noise_levels, x_parallel.shape[:2], config["p_mean"], config["p_std"])
 
                 parallel_state, loss = train_step(
-                    device_keys, parallel_state, x_parallel, y_parallel, t1, t2, consistency_config)
+                    device_keys,
+                    parallel_state,
+                    x_parallel,
+                    y_parallel,
+                    t1, t2,
+                    config["sigma_data"],
+                    config["sigma_min"],
+                    config["huber_const"]
+                )
 
                 steps.set_postfix(loss=unreplicate(loss))
