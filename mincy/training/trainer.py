@@ -47,12 +47,9 @@ def train_step(random_key: Any,
 
         return jnp.mean(weight * loss)
 
-    
     loss, grads = jax.value_and_grad(loss_fn)(state.params)
     grads = jax.lax.pmean(grads, "batch")
     loss = jax.lax.pmean(loss, "batch")
-
-    jax.debug.print('loss = {loss}', loss=loss)
 
     state = state.apply_gradients(grads=grads)
     return state, loss
