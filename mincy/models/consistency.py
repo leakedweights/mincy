@@ -25,7 +25,7 @@ def consistency_fn(xt, sigma, sigma_data, sigma_min, apply_fn, params):
     cskip = sigma**2 / ((sigma - sigma_min)**2 + sigma_data**2)
     cskip = cast_dim(cskip, xt.ndim)
 
-    scaled_sigma = 1e4 * 0.25 * jnp.log(sigma + 1e-44)
+    scaled_sigma = 0.25 * jnp.log(sigma + 1e-44)
 
     out = apply_fn(params, cin * xt, scaled_sigma)
     consistency_out = cout * out + cskip * xt

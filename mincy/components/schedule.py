@@ -15,7 +15,7 @@ def discretize(step, s0, s1, max_steps):
 
 def karras_levels(N, sigma_min, sigma_max, rho):
     discretized_steps = jnp.arange(1, N)
-    levels = sigma_max ** (1/rho) + (discretized_steps / (N-1)) * \
+    levels = sigma_min ** (1/rho) + (discretized_steps / (N-1)) * \
         (sigma_max ** (1/rho) - sigma_min ** (1/rho))
     levels = levels ** (rho)
     return levels
