@@ -4,6 +4,7 @@ import jax.numpy as jnp
 from jax import random
 from flax import linen as nn
 from flax.training import train_state, checkpoints
+from numpy import save
 from torch.utils.data import DataLoader
 from flax.jax_utils import replicate, unreplicate
 
@@ -134,19 +135,21 @@ class ConsistencyTrainer:
 
                 steps.set_postfix(loss=unreplicate(loss))
 
-                if (step + 1) % self.config["checkpoint_granularity"] == 0:
-                    self._unreplicate_and_save(
-                        parallel_state, step, save_checkpoint=True)
+                save_checkpoint = (
+                    step + 1) % self.config["checkpoint_granularity"] == 0
+                save_snapshot = (
+                    step + 1) % self.config["snapshot_granularity"] == 0
+                self._unreplicate_and_save(
+                    parallel_state, step, save_checkpoint, save_snapshot)
 
-                if (step + 1) % self.config["snapshot_granularity"] == 0:
-                    self._unreplicate_and_save(
-                        parallel_state, step, save_checkpoint=False)
+    def _unreplicate_and_save(self, parallel_state, step, save_checkpoint, save_snapshot):
+        if not (save_checkpoint or save_snapshot):
+            return
 
-    def _unreplicate_and_save(self, parallel_state, step, save_checkpoint=False):
         self.state = unreplicate(parallel_state)
         if save_checkpoint:
             self.save_checkpoint(step)
-        else:
+        if save_snapshot:
             self.save_snapshot(step)
 
     def save_snapshot(self, step):
@@ -167,6 +170,8 @@ class ConsistencyTrainer:
             output.save(fpath)
 
     def save_checkpoint(self, step):
+        os.makedirs(self.config["checkpoint_dir"], exist_ok=True)
+
         checkpoints.save_checkpoint(self.config["checkpoint_dir"],
                                     target=self.state,
                                     step=step,
