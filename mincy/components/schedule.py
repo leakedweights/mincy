@@ -1,9 +1,6 @@
-import jax
 import jax.numpy as jnp
 from jax import random
 from scipy.special import erf
-
-from functools import partial
 
 
 def discretize(step, s0, s1, max_steps):

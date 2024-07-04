@@ -6,9 +6,11 @@ from flax.training import train_state
 from torch.utils.data import DataLoader
 from flax.jax_utils import replicate, unreplicate
 
-from ..models.consistency import *
+from ..components.karras_utils import get_boundaries
+from ..components.consistency_utils import *
 from ..components.schedule import *
 
+from functools import partial
 from tqdm import trange
 from typing import Any
 
@@ -31,16 +33,16 @@ def train_step(random_key: Any,
 
     @jax.jit
     def loss_fn(params):
-        xt1, xt2 = training_consistency(
-            t1,
-            t2,
-            x,
-            noise,
-            state.apply_fn,
-            params,
-            sigma_data,
-            sigma_min
-        )
+        t1_noise_dim = cast_dim(t1, noise.ndim)
+        t2_noise_dim = cast_dim(t2, noise.ndim)
+
+        xt1_raw = x + t1_noise_dim * noise
+        xt2_raw = x + t2_noise_dim * noise
+
+        _, xt1 = jax.lax.stop_gradient(consistency_fn(
+            xt1_raw, t1, sigma_data, sigma_min, state.apply_fn, params))
+        _, xt2 = consistency_fn(
+            xt2_raw, t2, sigma_data, sigma_min, state.apply_fn, params)
 
         loss = pseudo_huber_loss(xt2, xt1, c_data)
         weight = cast_dim((1 / (t2 - t1)), loss.ndim)
@@ -111,7 +113,7 @@ class ConsistencyTrainer:
                 N = discretize(
                     step, config["s0"], config["s1"], train_steps)
 
-                noise_levels = karras_levels(
+                noise_levels = get_boundaries(
                     N, config["sigma_min"], config["sigma_max"], config["rho"])
 
                 t1, t2 = sample_timesteps(
