@@ -166,7 +166,7 @@ class ConsistencyTrainer:
         os.makedirs(self.config["snapshot_dir"], exist_ok=True)
 
         for idx, output in enumerate(pillow_outputs[:self.config["samples_to_keep"]]):
-            fpath = f"{self.config["snapshot_dir"]}/img_it{step}_n{idx + 1}.png"
+            fpath = f"{self.config['snapshot_dir']}/img_it{step}_n{idx + 1}.png"
             output.save(fpath)
 
     def save_checkpoint(self, step):

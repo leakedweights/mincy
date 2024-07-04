@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 
 
-def get_boundaries(N: jax.Aray, sigma_min: float, sigma_max: float, rho: float):
+def get_boundaries(N: jax.Array, sigma_min: float, sigma_max: float, rho: float) -> jax.Array:
     discretized_steps = jnp.arange(1, N)
     levels = sigma_min ** (1/rho) + (discretized_steps / (N-1)) * \
         (sigma_max ** (1/rho) - sigma_min ** (1/rho))
