@@ -46,7 +46,7 @@ def consistency_fn(xt, sigma, sigma_data, sigma_min, apply_fn, params):
 def sample_single_step(key, denoising_fn, denoising_params, shape, sigma_data, sigma_min, sigma_max):
     xT = random.normal(key, shape) * sigma_max
     sigmas = sigma_max * jnp.ones(shape[:1])
-    sigmas = cast_dim(sigmas, xT.ndim)
-    _, sample = consistency_fn(xT, sigmas, sigma_data, sigma_min, denoising_fn, denoising_params)
+    _, sample = consistency_fn(
+        xT, sigmas, sigma_data, sigma_min, denoising_fn, denoising_params)
     sample = jnp.clip(sample, -1, 1)
     return sample

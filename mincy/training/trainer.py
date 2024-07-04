@@ -140,13 +140,10 @@ class ConsistencyTrainer:
                 cumulative_loss += loss
                 log_freq = self.config["log_frequency"]
 
-                if ((step + 1) % log_freq == 0):
+                if ((step + 1) % log_freq == 0) and self.config["log_wandb"]:
                     avg_loss = cumulative_loss / log_freq
                     cumulative_loss = 0
-                    steps.set_postfix(loss=loss, avg=avg_loss)
-
-                    if self.config["log_wandb"]:
-                        wandb.log({"train_loss": avg_loss})
+                    wandb.log({"train_loss": avg_loss})
 
                 save_checkpoint = (
                     step + 1) % self.config["checkpoint_frequency"] == 0
