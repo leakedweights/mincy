@@ -23,11 +23,11 @@ trainer_config = {
     "log_frequency": 100,
 
     "create_snapshots": True,
-    "snapshot_granularity": 10000,
+    "snapshot_frequency": 10000,
     "samples_to_keep": 5,
     "snapshot_dir": None,
 
-    "checkpoint_granularity": 20000,
+    "checkpoint_frequency": 20000,
     "checkpoints_to_keep": 3,
     "checkpoint_dir": None,
 }

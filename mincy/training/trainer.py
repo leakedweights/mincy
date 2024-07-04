@@ -12,6 +12,7 @@ from ..components.karras_utils import get_boundaries
 from ..components.consistency_utils import *
 from .dataloader import reverse_transform
 
+import wandb
 from functools import partial
 from tqdm import trange
 from typing import Any
@@ -93,6 +94,7 @@ class ConsistencyTrainer:
         parallel_state = replicate(self.state)
 
         with trange(train_steps) as steps:
+            cumulative_loss = 0.0
             for step in steps:
                 try:
                     batch = next(self.dataloader.__iter__())
@@ -122,7 +124,7 @@ class ConsistencyTrainer:
                 t1, t2 = sample_timesteps(
                     schedule_key, noise_levels, x_parallel.shape[:2], config["p_mean"], config["p_std"])
 
-                parallel_state, loss = train_step(
+                parallel_state, parallel_loss = train_step(
                     device_keys,
                     parallel_state,
                     x_parallel,
@@ -133,12 +135,23 @@ class ConsistencyTrainer:
                     config["huber_const"]
                 )
 
-                steps.set_postfix(loss=unreplicate(loss))
+                loss = unreplicate(parallel_loss)
+                steps.set_postfix(loss=loss)
+                cumulative_loss += loss
+                log_freq = self.config["log_frequency"]
+
+                if ((step + 1) % log_freq == 0):
+                    avg_loss = cumulative_loss / log_freq
+                    cumulative_loss = 0
+                    steps.set_postfix(loss=loss, avg=avg_loss)
+
+                    if self.config["log_wandb"]:
+                        wandb.log({"train_loss": avg_loss})
 
                 save_checkpoint = (
-                    step + 1) % self.config["checkpoint_granularity"] == 0
+                    step + 1) % self.config["checkpoint_frequency"] == 0
                 save_snapshot = (
-                    step + 1) % self.config["snapshot_granularity"] == 0
+                    step + 1) % self.config["snapshot_frequency"] == 0
                 self._unreplicate_and_save(
                     parallel_state, step, save_checkpoint, save_snapshot)
 
@@ -156,6 +169,7 @@ class ConsistencyTrainer:
         self.random_key, snapshot_key = random.split(self.random_key)
         outputs = sample_single_step(snapshot_key,
                                      self.state.apply_fn,
+                                     self.state.params,
                                      self.device_batch_shape,
                                      self.consistency_config["sigma_data"],
                                      self.consistency_config["sigma_min"],
