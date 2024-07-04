@@ -1,14 +1,15 @@
+import os
 import jax
 import jax.numpy as jnp
 from jax import random
 from flax import linen as nn
-from flax.training import train_state
+from flax.training import train_state, checkpoints
 from torch.utils.data import DataLoader
 from flax.jax_utils import replicate, unreplicate
 
 from ..components.karras_utils import get_boundaries
 from ..components.consistency_utils import *
-from ..components.schedule import *
+from .dataloader import reverse_transform
 
 from functools import partial
 from tqdm import trange
@@ -78,8 +79,9 @@ class ConsistencyTrainer:
         assert dataloader.batch_size % num_devices == 0, "Batch size must be divisible by the number of devices!"
         self.num_devices = num_devices
         device_batch_size = dataloader.batch_size // num_devices
+        self.device_batch_shape = (device_batch_size, *img_shape)
 
-        init_input = jnp.ones((device_batch_size, *img_shape))
+        init_input = jnp.ones(self.device_batch_shape)
         init_time = jnp.ones((device_batch_size,))
         model_params = model.init(init_key, init_input, init_time, train=True)
 
@@ -131,3 +133,42 @@ class ConsistencyTrainer:
                 )
 
                 steps.set_postfix(loss=unreplicate(loss))
+
+                if (step + 1) % self.config["checkpoint_granularity"] == 0:
+                    self._unreplicate_and_save(
+                        parallel_state, step, save_checkpoint=True)
+
+                if (step + 1) % self.config["snapshot_granularity"] == 0:
+                    self._unreplicate_and_save(
+                        parallel_state, step, save_checkpoint=False)
+
+    def _unreplicate_and_save(self, parallel_state, step, save_checkpoint=False):
+        self.state = unreplicate(parallel_state)
+        if save_checkpoint:
+            self.save_checkpoint(step)
+        else:
+            self.save_snapshot(step)
+
+    def save_snapshot(self, step):
+        self.random_key, snapshot_key = random.split(self.random_key)
+        outputs = sample_single_step(snapshot_key,
+                                     self.state.apply_fn,
+                                     self.device_batch_shape,
+                                     self.consistency_config["sigma_data"],
+                                     self.consistency_config["sigma_min"],
+                                     self.consistency_config["sigma_max"])
+
+        pillow_outputs = [reverse_transform(output) for output in outputs]
+
+        os.makedirs(self.config["snapshot_dir"], exist_ok=True)
+
+        for idx, output in enumerate(pillow_outputs[:self.config["samples_to_keep"]]):
+            fpath = f"{self.config["snapshot_dir"]}/img_it{step}_n{idx + 1}.png"
+            output.save(fpath)
+
+    def save_checkpoint(self, step):
+        checkpoints.save_checkpoint(self.config["checkpoint_dir"],
+                                    target=self.state,
+                                    step=step,
+                                    overwrite=True,
+                                    keep=self.config["checkpoints_to_keep"])

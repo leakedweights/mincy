@@ -5,8 +5,8 @@ from flax import linen as nn
 from typing import Optional, Callable
 from functools import partial
 
-from ..components.blocks import ResnetBlock, AttentionBlock, Upsample, Downsample
-from ..components.embeddings import FourierEmbedding, sinusoidal_emb
+from ..components.unet_blocks import ResnetBlock, AttentionBlock, Upsample, Downsample
+from ..components.timestep_embeddings import FourierEmbedding, sinusoidal_emb
 
 
 class UNet(nn.Module):

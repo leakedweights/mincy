@@ -1,4 +1,3 @@
-import jax.numpy as jnp
 import flax.linen as nn
 
 denoiser_config = {
@@ -23,10 +22,10 @@ trainer_config = {
     "log_wandb": True,
     "log_frequency": 100,
 
-    "create_samples": True,
-    "sample_granularity": 10000,
+    "create_snapshots": True,
+    "snapshot_granularity": 10000,
     "samples_to_keep": 5,
-    "sample_dir": None,
+    "snapshot_dir": None,
 
     "checkpoint_granularity": 20000,
     "checkpoints_to_keep": 3,

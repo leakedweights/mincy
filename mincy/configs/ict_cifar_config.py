@@ -1,5 +1,5 @@
 import optax
-from .ict import denoiser_config, trainer_config
+from .ict_config import denoiser_config, trainer_config
 
 cifar_config = {
     **denoiser_config,
