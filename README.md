@@ -12,15 +12,14 @@ This repository contains the implementation for the paper *Improved Techniques f
 ```
 mincy/
 ├── components/
-│   ├── blocks.py
-│   ├── embeddings.py
-│   ├── schedule.py
-│   └── solvers.py
+│   ├── consistency_utils.py
+│   ├── karras_utils.py
+│   ├── timestep_embeddings.py
+│   └── unet_blocks.py
 ├── configs/
-│   ├── ict_cifar.py
-│   └── ict.py
+│   ├── ict_cifar_config.py
+│   └── ict_config.py
 ├── models/
-│   ├── consistency.py
 │   ├── unet.py
 │   └── utils.py
 ├── training/
