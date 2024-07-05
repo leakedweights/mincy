@@ -74,6 +74,7 @@ class ConsistencyTrainer:
 
         self.model = model
         self.config = config
+        self.checkpoint_step = 0
         self.consistency_config = consistency_config
         self.dataloader = dataloader
         self.random_key, init_key = random.split(random_key)
@@ -93,7 +94,7 @@ class ConsistencyTrainer:
     def train(self, train_steps: int):
         parallel_state = replicate(self.state)
 
-        with trange(train_steps) as steps:
+        with trange(self.checkpoint_step, train_steps, initial=self.checkpoint_step) as steps:
             cumulative_loss = 0.0
             for step in steps:
                 try:
@@ -184,7 +185,13 @@ class ConsistencyTrainer:
         os.makedirs(self.config["checkpoint_dir"], exist_ok=True)
 
         checkpoints.save_checkpoint(self.config["checkpoint_dir"],
-                                    target=self.state,
+                                    target={"state": self.state, "step": step},
                                     step=step,
                                     overwrite=True,
                                     keep=self.config["checkpoints_to_keep"])
+
+    def load_checkpoint(self):
+        restored = {"state": self.state, "step": 0}
+        checkpoints.restore_checkpoint(ckpt_dir=self.config["checkpoint_dir"],target=restored)
+        self.checkpoint_step = restored["step"]
+        self.state = restored["state"]
