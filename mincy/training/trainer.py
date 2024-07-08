@@ -77,7 +77,7 @@ class ConsistencyTrainer:
         self.checkpoint_step = 0
         self.consistency_config = consistency_config
         self.dataloader = dataloader
-        self.random_key, init_key = random.split(random_key)
+        self.random_key, self.snapshot_key, init_key = random.split(random_key, 3)
 
         assert dataloader.batch_size % num_devices == 0, "Batch size must be divisible by the number of devices!"
         self.num_devices = num_devices
@@ -153,6 +153,9 @@ class ConsistencyTrainer:
                 self._unreplicate_and_save(
                     parallel_state, step, save_checkpoint, save_snapshot)
 
+        self._unreplicate_and_save(
+            parallel_state, train_steps, save_checkpoint=True, save_snapshot=True)
+
     def _unreplicate_and_save(self, parallel_state, step, save_checkpoint, save_snapshot):
         if not (save_checkpoint or save_snapshot):
             return
@@ -164,8 +167,7 @@ class ConsistencyTrainer:
             self.save_snapshot(step)
 
     def save_snapshot(self, step):
-        self.random_key, snapshot_key = random.split(self.random_key)
-        outputs = sample_single_step(snapshot_key,
+        outputs = sample_single_step(self.snapshot_key,
                                      self.state.apply_fn,
                                      self.state.params,
                                      self.device_batch_shape,
@@ -178,7 +180,7 @@ class ConsistencyTrainer:
         os.makedirs(self.config["snapshot_dir"], exist_ok=True)
 
         for idx, output in enumerate(pillow_outputs[:self.config["samples_to_keep"]]):
-            fpath = f"{self.config['snapshot_dir']}/img_it{step}_n{idx + 1}.png"
+            fpath = f"{self.config['snapshot_dir']}/img_it{step+1}_n{idx + 1}.png"
             output.save(fpath)
 
     def save_checkpoint(self, step):
@@ -190,8 +192,11 @@ class ConsistencyTrainer:
                                     overwrite=True,
                                     keep=self.config["checkpoints_to_keep"])
 
+        self.checkpoint_step = step
+
     def load_checkpoint(self):
         restored = {"state": self.state, "step": 0}
-        checkpoints.restore_checkpoint(ckpt_dir=self.config["checkpoint_dir"],target=restored)
+        checkpoints.restore_checkpoint(
+            ckpt_dir=self.config["checkpoint_dir"], target=restored)
         self.checkpoint_step = restored["step"]
         self.state = restored["state"]
