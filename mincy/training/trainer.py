@@ -77,7 +77,8 @@ class ConsistencyTrainer:
         self.checkpoint_step = 0
         self.consistency_config = consistency_config
         self.dataloader = dataloader
-        self.random_key, self.snapshot_key, init_key = random.split(random_key, 3)
+        self.random_key, self.snapshot_key, init_key = random.split(
+            random_key, 3)
 
         assert dataloader.batch_size % num_devices == 0, "Batch size must be divisible by the number of devices!"
         self.num_devices = num_devices
@@ -148,7 +149,7 @@ class ConsistencyTrainer:
 
                 save_checkpoint = (
                     step + 1) % self.config["checkpoint_frequency"] == 0
-                save_snapshot = (
+                save_snapshot = step == 0 or (
                     step + 1) % self.config["snapshot_frequency"] == 0
                 self._unreplicate_and_save(
                     parallel_state, step, save_checkpoint, save_snapshot)
@@ -196,6 +197,10 @@ class ConsistencyTrainer:
 
     def load_checkpoint(self):
         target = {"state": self.state, "step": 0}
-        restored = checkpoints.restore_checkpoint(ckpt_dir=self.config["checkpoint_dir"],target=target)
-        self.checkpoint_step = restored["step"]
-        self.state = restored["state"]
+        try:
+            restored = checkpoints.restore_checkpoint(
+                ckpt_dir=self.config["checkpoint_dir"], target=target)
+            self.checkpoint_step = restored["step"]
+            self.state = restored["state"]
+        except Exception as e:
+            print(f"Unable to load checkpoint: {e}")
