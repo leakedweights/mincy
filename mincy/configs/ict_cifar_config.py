@@ -17,6 +17,5 @@ cifar_config = {
 
 cifar_trainer_config = {
     **trainer_config,
-    "train_steps": int(4e5),
     "learning_rate": 1e-4,
 }

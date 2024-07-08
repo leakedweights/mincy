@@ -20,7 +20,7 @@ consistency_config = {
 trainer_config = {
     "optimizer": None,
     "log_wandb": True,
-    "log_frequency": 500,
+    "log_frequency": 100,
 
     "create_snapshots": True,
     "snapshot_frequency": 10_000,
