@@ -20,14 +20,14 @@ consistency_config = {
 trainer_config = {
     "optimizer": None,
     "log_wandb": True,
-    "log_frequency": 100,
+    "log_frequency": 500,
 
     "create_snapshots": True,
-    "snapshot_frequency": 10000,
+    "snapshot_frequency": 10_000,
     "samples_to_keep": 5,
     "snapshot_dir": None,
 
-    "checkpoint_frequency": 20000,
-    "checkpoints_to_keep": 3,
+    "checkpoint_frequency": 40_000,
+    "checkpoints_to_keep": 5,
     "checkpoint_dir": None,
 }
