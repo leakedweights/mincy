@@ -195,8 +195,7 @@ class ConsistencyTrainer:
         self.checkpoint_step = step
 
     def load_checkpoint(self):
-        restored = {"state": self.state, "step": 0}
-        checkpoints.restore_checkpoint(
-            ckpt_dir=self.config["checkpoint_dir"], target=restored)
+        target = {"state": self.state, "step": 0}
+        restored = checkpoints.restore_checkpoint(ckpt_dir=self.config["checkpoint_dir"],target=target)
         self.checkpoint_step = restored["step"]
         self.state = restored["state"]
