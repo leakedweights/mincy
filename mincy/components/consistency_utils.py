@@ -4,7 +4,7 @@ from jax import random
 from scipy.special import erf
 
 from .karras_utils import cin, cout, cskip, cnoise
-from ..models.utils import cast_dim
+from ..utils import cast_dim
 
 from typing import Callable, Any, Iterable
 

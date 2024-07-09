@@ -4,13 +4,13 @@ import jax.numpy as jnp
 from jax import random
 from flax import linen as nn
 from flax.training import train_state, checkpoints
-from numpy import save
 from torch.utils.data import DataLoader
 from flax.jax_utils import replicate, unreplicate
 
 from ..components.karras_utils import get_boundaries
 from ..components.consistency_utils import *
 from .dataloader import reverse_transform
+from ..utils import cast_dim
 
 import wandb
 from functools import partial
@@ -95,7 +95,7 @@ class ConsistencyTrainer:
     def train(self, train_steps: int):
         parallel_state = replicate(self.state)
 
-        with trange(self.checkpoint_step, train_steps, initial=self.checkpoint_step) as steps:
+        with trange(self.checkpoint_step, train_steps, initial=self.checkpoint_step, total=train_steps) as steps:
             cumulative_loss = 0.0
             for step in steps:
                 try:
@@ -200,7 +200,7 @@ class ConsistencyTrainer:
         try:
             restored = checkpoints.restore_checkpoint(
                 ckpt_dir=self.config["checkpoint_dir"], target=target)
-            self.checkpoint_step = restored["step"]
+            self.checkpoint_step = int(restored["step"])
             self.state = restored["state"]
         except Exception as e:
             print(f"Unable to load checkpoint: {e}")
