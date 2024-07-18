@@ -191,7 +191,7 @@ class ConsistencyTrainer:
     def save_snapshot(self, step):
         outputs = sample_single_step(self.snapshot_key,
                                      self.state.apply_fn,
-                                     self.state.params,
+                                     self.state.params_ema,
                                      self.device_batch_shape,
                                      self.consistency_config["sigma_data"],
                                      self.consistency_config["sigma_min"],
@@ -229,7 +229,7 @@ class ConsistencyTrainer:
     def generate(self, key):
         return sample_single_step(key,
                                   self.state.apply_fn,
-                                  self.state.params,
+                                  self.state.params_ema,
                                   self.device_batch_shape,
                                   self.consistency_config["sigma_data"],
                                   self.consistency_config["sigma_min"],
