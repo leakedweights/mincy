@@ -27,6 +27,11 @@ trainer_config = {
     "samples_to_keep": 5,
     "snapshot_dir": None,
 
+    "run_evals": True,
+    "eval_frequency": 10_000,
+    "ground_truth_dir": None,
+    "eval_dir": None,
+
     "checkpoint_frequency": 40_000,
     "checkpoints_to_keep": 5,
     "checkpoint_dir": None,

@@ -1,21 +1,28 @@
 import os
 import jax
-import jax.numpy as jnp
 from jax import random
+import jax.numpy as jnp
 from flax import linen as nn
-from flax.training import train_state, checkpoints
 from torch.utils.data import DataLoader
 from flax.jax_utils import replicate, unreplicate
+from flax.training import train_state, checkpoints
 
-from ..components.karras_utils import get_boundaries
-from ..components.consistency_utils import *
+from ..utils import cast_dim, update_ema
 from .dataloader import reverse_transform
-from ..utils import cast_dim
+from ..components.consistency_utils import *
 
+import torch
 import wandb
-from functools import partial
-from tqdm import trange
 from typing import Any
+from tqdm import trange
+from cleanfid import fid
+from functools import partial
+from dataclasses import dataclass
+
+
+@dataclass
+class TrainState(train_state.TrainState):
+    ema_params: Any
 
 
 @partial(jax.pmap, axis_name="batch", static_broadcasted_argnums=(6, 7, 8))
@@ -43,9 +50,9 @@ def train_step(random_key: Any,
         xt2_raw = x + t2_noise_dim * noise
 
         _, xt1 = jax.lax.stop_gradient(consistency_fn(
-            xt1_raw, t1, sigma_data, sigma_min, state.apply_fn, params))
+            xt1_raw, y, t1, sigma_data, sigma_min, state.apply_fn, params))
         _, xt2 = consistency_fn(
-            xt2_raw, t2, sigma_data, sigma_min, state.apply_fn, params)
+            xt2_raw, y, t2, sigma_data, sigma_min, state.apply_fn, params)
 
         loss = pseudo_huber_loss(xt2, xt1, c_data)
         weight = cast_dim((1 / (t2 - t1)), loss.ndim)
@@ -137,6 +144,13 @@ class ConsistencyTrainer:
                     config["huber_const"]
                 )
 
+                parallel_state = parallel_state.replace(
+                    params_ema=update_ema(
+                        state.ema_params,
+                        parallel_state.params,
+                        self.config["ema_decay"])
+                )
+
                 loss = unreplicate(parallel_loss)
                 steps.set_postfix(loss=loss)
                 cumulative_loss += loss
@@ -147,17 +161,24 @@ class ConsistencyTrainer:
                     cumulative_loss = 0
                     wandb.log({"train_loss": avg_loss})
 
+                state = unreplicate(parallel_state)
+
                 save_checkpoint = (
                     step + 1) % self.config["checkpoint_frequency"] == 0
-                save_snapshot = step == 0 or (
-                    step + 1) % self.config["snapshot_frequency"] == 0
-                self._unreplicate_and_save(
-                    parallel_state, step, save_checkpoint, save_snapshot)
+                save_snapshot = self.config["create_snapshots"] and (step == 0 or (
+                    step + 1) % self.config["snapshot_frequency"] == 0)
+                self._save(
+                    state, step, save_checkpoint, save_snapshot)
 
-        self._unreplicate_and_save(
+                run_eval = self.config["run_evals"] and (
+                    step + 1) % self.config["eval_frequency"] == 0
+                if run_eval:
+                    self.run_eval(step, state)
+
+        self._save(
             parallel_state, train_steps, save_checkpoint=True, save_snapshot=True)
 
-    def _unreplicate_and_save(self, parallel_state, step, save_checkpoint, save_snapshot):
+    def _save(self, parallel_state, step, save_checkpoint, save_snapshot):
         if not (save_checkpoint or save_snapshot):
             return
 
@@ -204,3 +225,40 @@ class ConsistencyTrainer:
             self.state = restored["state"]
         except Exception as e:
             print(f"Unable to load checkpoint: {e}")
+
+    def generate(self, key):
+        return sample_single_step(key,
+                                  self.state.apply_fn,
+                                  self.state.params,
+                                  self.device_batch_shape,
+                                  self.consistency_config["sigma_data"],
+                                  self.consistency_config["sigma_min"],
+                                  self.consistency_config["sigma_max"])
+
+    def run_eval(self):
+        from mincy.training.dataloader import reverse_transform
+
+        eval_dir = f"../eval/synthetic"
+        os.makedirs(eval_dir, exist_ok=True)
+        num_synthetic_samples = 10_000
+
+        sample_key = random.key(0)
+
+        i = 0
+
+        while i < num_synthetic_samples:
+            sample_key, subkey = random.split(sample_key)
+            samples = self.generate(sample_key)
+
+            pillow_outputs = [reverse_transform(
+                output) for output in samples[:min(num_synthetic_samples - i, len(samples))]]
+            for idx, output in enumerate(pillow_outputs):
+                fpath = f"{eval_dir}/{i + idx}.png"
+                output.save(fpath)
+
+            i += len(pillow_outputs)
+
+        score = fid.compute_fid(eval_dir, dataset_name="cifar10",
+                                dataset_res=32, dataset_split="test", device=torch.device('cpu'))
+
+        return score

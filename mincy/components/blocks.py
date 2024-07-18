@@ -8,6 +8,42 @@ from typing import Optional, Callable, Sequence, Any
 Shape = int | Sequence
 
 
+def sinusoidal_emb(timesteps: jax.Array, embedding_dim: int) -> jax.Array:
+    timesteps = timesteps * 1e3
+    half_dim = embedding_dim // 2
+    emb_scale = jnp.log(1e4) / (half_dim - 1)
+
+    emb = jnp.arange(half_dim) * -emb_scale
+    emb = jnp.exp(emb)
+    emb = emb[None, :] * timesteps[:, None]
+
+    sin_emb = jnp.sin(emb)
+    cos_emb = jnp.cos(emb)
+    embedding = jnp.concatenate([sin_emb, cos_emb], axis=-1)
+
+    if embedding_dim % 2 == 1:
+        padding = ((0, 0), (0, 0), (0, 1))
+        embedding = jnp.pad(embedding, padding, mode='constant')
+
+    return embedding
+
+
+class FourierEmbedding(nn.Module):
+    """https://github.com/openai/consistency_models_cifar10/"""
+    embedding_size: int = 256
+    scale: float = 1.0
+
+    @nn.compact
+    def __call__(self, x):
+        W = self.param(
+            "W", jax.nn.initializers.normal(
+                stddev=self.scale), (self.embedding_size,)
+        )
+        W = jax.lax.stop_gradient(W)
+        x_proj = x[:, None] * W[None, :] * 2 * jnp.pi
+        return jnp.concatenate([jnp.sin(x_proj), jnp.cos(x_proj)], axis=-1)
+
+
 class Upsample(nn.Module):
     kernel_size: tuple
     out_channels: Optional[int] = None
@@ -19,7 +55,7 @@ class Upsample(nn.Module):
         out_channels = self.out_channels if self.out_channels is not None else c
 
         x = jax.image.resize(x, (b, 2 * h, 2 * w, c), "nearest")
-        x = nn.Conv(features=out_channels,
+        x = nn.Conv(features=out_channels, padding="SAME",
                     kernel_size=self.kernel_size)(x)
         return x
 
@@ -33,7 +69,7 @@ class Downsample(nn.Module):
         b, h, w, c = x.shape
         out_channels = self.out_channels if self.out_channels is not None else c
 
-        x = nn.Conv(features=out_channels,
+        x = nn.Conv(features=out_channels, padding="SAME",
                     kernel_size=self.kernel_size,
                     strides=(2, 2))(x)
         return x
@@ -57,7 +93,8 @@ class ConvBlock(nn.Module):
         if self.transform is not None:
             x = self.transform(x)
 
-        x = nn.Conv(self.features, kernel_size=self.kernel_size)(x)
+        x = nn.Conv(self.features, kernel_size=self.kernel_size,
+                    padding="SAME")(x)
 
         return x
 
@@ -91,7 +128,7 @@ class ResnetBlock(nn.Module):
             if self.transform is not None or x.shape[-1] != self.features:
                 if self.transform is not None:
                     x = self.transform(x)
-                x = nn.Conv(self.features, [1, 1])(x)
+                x = nn.Conv(self.features, [1, 1], padding="SAME")(x)
 
             h = ConvBlock(self.features, self.kernel_size, dropout=0.0,
                           nonlinearity=self.nonlinearity, transform=self.conv_transform)(h, deterministic)
@@ -152,11 +189,7 @@ class AttentionBlock(nn.Module):
 
     @nn.compact
     def __call__(self, x, *args, **kwargs):
-        if self.variant == "NCSN++":
-            def transform(units, init_scale=0.1): return NIN(units, init_scale)
-        else:
-            transform = nn.Identity()
-
+        def transform(units, init_scale=0.1): return NIN(units, init_scale)
         b, h, w, c = x.shape
         num_groups = min(c // 4, 32)
 

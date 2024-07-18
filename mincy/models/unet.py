@@ -5,8 +5,7 @@ from flax import linen as nn
 from typing import Optional, Callable
 from functools import partial
 
-from ..components.unet_blocks import ResnetBlock, AttentionBlock, Upsample, Downsample
-from ..components.timestep_embeddings import FourierEmbedding, sinusoidal_emb
+from ..components.blocks import ResnetBlock, AttentionBlock, Upsample, Downsample, FourierEmbedding, sinusoidal_emb
 
 
 class UNet(nn.Module):
@@ -19,6 +18,8 @@ class UNet(nn.Module):
     pos_emb_type: str
     pos_emb_dim: int
     rescale_skip_conns: bool
+    class_cond: bool
+    num_classes: int
     resblock_variant: str
     nonlinearity: Callable
     downsample_last_dim: bool = False
@@ -26,7 +27,7 @@ class UNet(nn.Module):
     fourier_scale: Optional[float] = None
 
     @nn.compact
-    def __call__(self, x: jax.Array, t: jax.Array, train: bool = True):
+    def __call__(self, x: jax.Array, y: jax.Array, t: jax.Array, train: bool = True):
         b, h, w, c = x.shape
 
         ParameterizedResBlock = partial(ResnetBlock,
@@ -36,8 +37,11 @@ class UNet(nn.Module):
                                         nonlinearity=self.nonlinearity,
                                         dropout=self.dropout)
 
+        if self.class_cond:
+            class_emb = nn.Embed(self.num_classes, self.pos_emb_dim)
+
         input_layer = nn.Conv(features=self.num_init_channels,
-                              kernel_size=self.kernel_size)
+                              kernel_size=self.kernel_size, padding="SAME")
 
         down_layers = list()
         up_layers = list()
@@ -101,7 +105,8 @@ class UNet(nn.Module):
 
             up_layers.append(layer)
 
-        output_layer = nn.Conv(features=c, kernel_size=self.kernel_size)
+        output_layer = nn.Conv(
+            features=c, kernel_size=self.kernel_size, padding="SAME")
 
         if self.pos_emb_type == "fourier":
             assert self.fourier_scale is not None, "Fourier scale must be specified when using Gaussian Fourier embeddings!"
@@ -111,6 +116,9 @@ class UNet(nn.Module):
         else:
             raise NotImplementedError(
                 f"Embedding type '{self.pos_emb_type}' not supported.")
+
+        if self.class_cond:
+            pos_emb = pos_emb + class_emb(y)
 
         residuals = []
 

@@ -1,4 +1,3 @@
-import optax
 from .ict_config import denoiser_config, trainer_config
 
 cifar_config = {
@@ -12,7 +11,10 @@ cifar_config = {
     "pos_emb_dim": 16,
     "rescale_skip_conns": True,
     "resblock_variant": "BigGAN++",
-    "fourier_scale": 16,
+    "fourier_scale": 0.002,
+    "dropout": 0.3,
+    "num_classes": 10,
+    "class_cond": True
 }
 
 cifar_trainer_config = {
