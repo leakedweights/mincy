@@ -148,12 +148,13 @@ class ConsistencyTrainer:
                     config["huber_const"]
                 )
 
-                parallel_state = parallel_state.replace(
-                    ema_params=update_ema(
-                        parallel_state.ema_params,
-                        parallel_state.params,
-                        self.config["ema_decay"])
-                )
+                if self.config["use_ema"]:
+                    parallel_state = parallel_state.replace(
+                        ema_params=update_ema(
+                            parallel_state.ema_params,
+                            parallel_state.params,
+                            self.config["ema_decay"])
+                    )
 
                 loss = unreplicate(parallel_loss)
                 steps.set_postfix(loss=loss)
@@ -163,7 +164,7 @@ class ConsistencyTrainer:
                 if ((step + 1) % log_freq == 0) and self.config["log_wandb"]:
                     avg_loss = cumulative_loss / log_freq
                     cumulative_loss = 0
-                    wandb.log({"step": step, "train_loss": avg_loss})
+                    wandb.log({"train_loss": avg_loss}, step=step)
 
                 save_checkpoint = (
                     step + 1) % self.config["checkpoint_frequency"] == 0
@@ -177,7 +178,7 @@ class ConsistencyTrainer:
                 if run_eval:
                     self.state = unreplicate(parallel_state)
                     fid_score = self.run_eval()
-                    wandb.log({"step": step, "fid_score": fid_score})
+                    wandb.log({"fid_score": fid_score}, step=step)
 
         self._save(
             parallel_state, train_steps, save_checkpoint=True, save_snapshot=True)
@@ -225,9 +226,14 @@ class ConsistencyTrainer:
             print(f"Unable to load checkpoint: {e}")
 
     def generate(self, key, classes: Optional[jax.Array] = None):
+        if self.config["use_ema"]:
+            generation_params = self.state.ema_params
+        else:
+            generation_params = self.state.params
+
         return sample_single_step(key,
                                   self.state.apply_fn,
-                                  self.state.ema_params,
+                                  generation_params,
                                   self.device_batch_shape,
                                   self.consistency_config["sigma_data"],
                                   self.consistency_config["sigma_min"],

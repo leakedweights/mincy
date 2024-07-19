@@ -20,5 +20,6 @@ cifar_config = {
 cifar_trainer_config = {
     **trainer_config,
     "learning_rate": 1e-4,
+    "use_ema": True,
     "ema_decay": 0.99990,
 }
