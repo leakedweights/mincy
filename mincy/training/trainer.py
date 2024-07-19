@@ -14,10 +14,10 @@ from ..components.consistency_utils import *
 
 import torch
 import wandb
-from typing import Any
 from tqdm import trange
 from cleanfid import fid
 from functools import partial
+from typing import Any, Optional
 from dataclasses import dataclass
 
 
@@ -52,9 +52,9 @@ def train_step(random_key: Any,
         xt2_raw = x + t2_noise_dim * noise
 
         _, xt1 = jax.lax.stop_gradient(consistency_fn(
-            xt1_raw, y, t1, sigma_data, sigma_min, partial(state.apply_fn, rngs={"dropout": dropout_t1}), params))
+            xt1_raw, y, t1, sigma_data, sigma_min, partial(state.apply_fn, rngs={"dropout": dropout_t1}), params, train=True))
         _, xt2 = consistency_fn(
-            xt2_raw, y, t2, sigma_data, sigma_min, partial(state.apply_fn, rngs={"dropout": dropout_t2}), params)
+            xt2_raw, y, t2, sigma_data, sigma_min, partial(state.apply_fn, rngs={"dropout": dropout_t2}), params, train=True)
 
         loss = pseudo_huber_loss(xt2, xt1, c_data)
         weight = cast_dim((1 / (t2 - t1)), loss.ndim)
@@ -97,7 +97,8 @@ class ConsistencyTrainer:
         init_input = jnp.ones(self.device_batch_shape)
         init_labels = jnp.ones((device_batch_size,), dtype=jnp.int32)
         init_time = jnp.ones((device_batch_size,))
-        model_params = model.init(init_key, init_input, init_labels, init_time, train=True)
+        model_params = model.init(
+            init_key, init_input, init_labels, init_time, train=True)
 
         self.state = TrainState.create(
             apply_fn=model.apply, params=model_params, ema_params=model_params, tx=optimizer)
@@ -171,10 +172,11 @@ class ConsistencyTrainer:
                 self._save(
                     parallel_state, step, save_checkpoint, save_snapshot)
 
-                run_eval = self.config["run_evals"] and (
-                    step + 1) % self.config["eval_frequency"] == 0
+                run_eval = self.config["run_evals"] and (step == 0 or (
+                    step + 1) % self.config["eval_frequency"] == 0)
                 if run_eval:
-                    fid_score = self.run_eval(step, state)
+                    self.state = unreplicate(parallel_state)
+                    fid_score = self.run_eval()
                     wandb.log({"step": step, "fid_score": fid_score})
 
         self._save(
@@ -191,13 +193,7 @@ class ConsistencyTrainer:
             self.save_snapshot(step)
 
     def save_snapshot(self, step):
-        outputs = sample_single_step(self.snapshot_key,
-                                     self.state.apply_fn,
-                                     self.state.ema_params,
-                                     self.device_batch_shape,
-                                     self.consistency_config["sigma_data"],
-                                     self.consistency_config["sigma_min"],
-                                     self.consistency_config["sigma_max"])
+        outputs = self.generate(self.snapshot_key, classes=None)
 
         pillow_outputs = [reverse_transform(output) for output in outputs]
 
@@ -228,21 +224,21 @@ class ConsistencyTrainer:
         except Exception as e:
             print(f"Unable to load checkpoint: {e}")
 
-    def generate(self, key):
+    def generate(self, key, classes: Optional[jax.Array] = None):
         return sample_single_step(key,
                                   self.state.apply_fn,
-                                  self.state.params_ema,
+                                  self.state.ema_params,
                                   self.device_batch_shape,
                                   self.consistency_config["sigma_data"],
                                   self.consistency_config["sigma_min"],
-                                  self.consistency_config["sigma_max"])
+                                  self.consistency_config["sigma_max"],
+                                  self.model.num_classes,
+                                  classes=classes)
 
     def run_eval(self):
-        from mincy.training.dataloader import reverse_transform
-
         eval_dir = f"../eval/synthetic"
         os.makedirs(eval_dir, exist_ok=True)
-        num_synthetic_samples = 10_000
+        num_synthetic_samples = 1000
 
         sample_key = random.key(0)
 
@@ -261,4 +257,6 @@ class ConsistencyTrainer:
             i += len(pillow_outputs)
 
         score = fid.compute_fid(eval_dir, dataset_name="cifar10",
-                                dataset_res=32, dataset_split="test", device=torch.device('cpu'))
+                                dataset_res=32, dataset_split="test", device=torch.device('cpu'), verbose=False)
+
+        return score

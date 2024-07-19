@@ -27,7 +27,7 @@ class UNet(nn.Module):
     fourier_scale: Optional[float] = None
 
     @nn.compact
-    def __call__(self, x: jax.Array, y: jax.Array, t: jax.Array, train: bool = True):
+    def __call__(self, x: jax.Array, y: jax.Array, t: jax.Array, train: bool):
         b, h, w, c = x.shape
 
         ParameterizedResBlock = partial(ResnetBlock,
