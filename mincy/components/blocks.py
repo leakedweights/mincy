@@ -9,7 +9,6 @@ Shape = int | Sequence
 
 
 def sinusoidal_emb(timesteps: jax.Array, embedding_dim: int) -> jax.Array:
-    timesteps = timesteps * 1e3
     half_dim = embedding_dim // 2
     emb_scale = jnp.log(1e4) / (half_dim - 1)
 

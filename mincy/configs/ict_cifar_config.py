@@ -20,6 +20,14 @@ cifar_config = {
 cifar_trainer_config = {
     **trainer_config,
     "learning_rate": 1e-4,
-    "use_ema": True,
-    "ema_decay": 0.99990,
+    "use_ema": False,
+
+    "num_eval_samples": int(1e4),
+    "fid_params": {
+        "dataset_name": "cifar10",
+        "dataset_res": 32,
+        "dataset_split": "test",
+        "device": None,
+        "verbose": False
+    }
 }

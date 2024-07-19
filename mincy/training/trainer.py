@@ -12,13 +12,11 @@ from ..utils import cast_dim, update_ema
 from .dataloader import reverse_transform
 from ..components.consistency_utils import *
 
-import torch
 import wandb
 from tqdm import trange
 from cleanfid import fid
 from functools import partial
 from typing import Any, Optional
-from dataclasses import dataclass
 
 
 @flax.struct.dataclass
@@ -242,27 +240,26 @@ class ConsistencyTrainer:
                                   classes=classes)
 
     def run_eval(self):
-        eval_dir = f"../eval/synthetic"
+        eval_dir = self.config["eval_dir"]
         os.makedirs(eval_dir, exist_ok=True)
-        num_synthetic_samples = 10_000
+        num_samples = self.config["num_eval_samples"]
 
         sample_key = random.key(0)
 
         i = 0
 
-        while i < num_synthetic_samples:
+        while i < num_samples:
             sample_key, subkey = random.split(sample_key)
             samples = self.generate(sample_key)
 
             pillow_outputs = [reverse_transform(
-                output) for output in samples[:min(num_synthetic_samples - i, len(samples))]]
+                output) for output in samples[:min(num_samples - i, len(samples))]]
             for idx, output in enumerate(pillow_outputs):
                 fpath = f"{eval_dir}/{i + idx}.png"
                 output.save(fpath)
 
             i += len(pillow_outputs)
 
-        score = fid.compute_fid(eval_dir, dataset_name="cifar10",
-                                dataset_res=32, dataset_split="test", device=torch.device('cpu'), verbose=False)
+        score = fid.compute_fid(eval_dir, **self.config["fid_params"])
 
         return score
