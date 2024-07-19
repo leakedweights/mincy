@@ -37,9 +37,6 @@ class UNet(nn.Module):
                                         nonlinearity=self.nonlinearity,
                                         dropout=self.dropout)
 
-        if self.class_cond:
-            class_emb = nn.Embed(self.num_classes, self.pos_emb_dim)
-
         input_layer = nn.Conv(features=self.num_init_channels,
                               kernel_size=self.kernel_size, padding="SAME")
 
@@ -118,6 +115,9 @@ class UNet(nn.Module):
                 f"Embedding type '{self.pos_emb_type}' not supported.")
 
         if self.class_cond:
+            class_cond_dim = self.pos_emb_dim * \
+                (2 if self.pos_emb_type == "fourier" else 1)
+            class_emb = nn.Embed(self.num_classes, class_cond_dim)
             pos_emb = pos_emb + class_emb(y)
 
         residuals = []

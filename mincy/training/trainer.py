@@ -1,5 +1,6 @@
 import os
 import jax
+import flax
 from jax import random
 import jax.numpy as jnp
 from flax import linen as nn
@@ -20,7 +21,7 @@ from functools import partial
 from dataclasses import dataclass
 
 
-@dataclass
+@flax.struct.dataclass
 class TrainState(train_state.TrainState):
     ema_params: Any
 
@@ -36,10 +37,11 @@ def train_step(random_key: Any,
                sigma_min: float,
                huber_const: float):
 
+    noise_key, dropout_t1, dropout_t2 = random.split(random_key, 3)
     data_dim = jnp.prod(jnp.array(x.shape[1:]))
     c_data = huber_const * jnp.sqrt(data_dim)
 
-    noise = random.normal(random_key, x.shape)
+    noise = random.normal(noise_key, x.shape)
 
     @jax.jit
     def loss_fn(params):
@@ -50,9 +52,9 @@ def train_step(random_key: Any,
         xt2_raw = x + t2_noise_dim * noise
 
         _, xt1 = jax.lax.stop_gradient(consistency_fn(
-            xt1_raw, y, t1, sigma_data, sigma_min, state.apply_fn, params))
+            xt1_raw, y, t1, sigma_data, sigma_min, state.apply_fn, params, dropout_t1))
         _, xt2 = consistency_fn(
-            xt2_raw, y, t2, sigma_data, sigma_min, state.apply_fn, params)
+            xt2_raw, y, t2, sigma_data, sigma_min, state.apply_fn, params, dropout_t2)
 
         loss = pseudo_huber_loss(xt2, xt1, c_data)
         weight = cast_dim((1 / (t2 - t1)), loss.ndim)
@@ -93,11 +95,12 @@ class ConsistencyTrainer:
         self.device_batch_shape = (device_batch_size, *img_shape)
 
         init_input = jnp.ones(self.device_batch_shape)
+        init_labels = jnp.ones((device_batch_size,), dtype=jnp.int32)
         init_time = jnp.ones((device_batch_size,))
-        model_params = model.init(init_key, init_input, init_time, train=True)
+        model_params = model.init(init_key, init_input, init_labels, init_time, train=True)
 
-        self.state = train_state.TrainState.create(
-            apply_fn=model.apply, params=model_params, tx=optimizer)
+        self.state = TrainState.create(
+            apply_fn=model.apply, params=model_params, ema_params=model_params, tx=optimizer)
 
     def train(self, train_steps: int):
         parallel_state = replicate(self.state)
@@ -144,12 +147,12 @@ class ConsistencyTrainer:
                     config["huber_const"]
                 )
 
-                parallel_state = parallel_state.replace(
-                    params_ema=update_ema(
-                        state.ema_params,
+                parallel_state = replicate(unreplicate(parallel_state).replace(
+                    ema_params=update_ema(
+                        parallel_state.ema_params,
                         parallel_state.params,
                         self.config["ema_decay"])
-                )
+                ))
 
                 loss = unreplicate(parallel_loss)
                 steps.set_postfix(loss=loss)
@@ -159,7 +162,7 @@ class ConsistencyTrainer:
                 if ((step + 1) % log_freq == 0) and self.config["log_wandb"]:
                     avg_loss = cumulative_loss / log_freq
                     cumulative_loss = 0
-                    wandb.log({"train_loss": avg_loss})
+                    wandb.log({"step": step, "train_loss": avg_loss})
 
                 state = unreplicate(parallel_state)
 
@@ -173,7 +176,8 @@ class ConsistencyTrainer:
                 run_eval = self.config["run_evals"] and (
                     step + 1) % self.config["eval_frequency"] == 0
                 if run_eval:
-                    self.run_eval(step, state)
+                    fid_score = self.run_eval(step, state)
+                    wandb.log({"step": step, "fid_score": fid_score})
 
         self._save(
             parallel_state, train_steps, save_checkpoint=True, save_snapshot=True)
