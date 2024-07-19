@@ -52,9 +52,9 @@ def train_step(random_key: Any,
         xt2_raw = x + t2_noise_dim * noise
 
         _, xt1 = jax.lax.stop_gradient(consistency_fn(
-            xt1_raw, y, t1, sigma_data, sigma_min, state.apply_fn, params, dropout_t1))
+            xt1_raw, y, t1, sigma_data, sigma_min, partial(state.apply_fn, rngs={"dropout": dropout_t1}), params))
         _, xt2 = consistency_fn(
-            xt2_raw, y, t2, sigma_data, sigma_min, state.apply_fn, params, dropout_t2)
+            xt2_raw, y, t2, sigma_data, sigma_min, partial(state.apply_fn, rngs={"dropout": dropout_t2}), params)
 
         loss = pseudo_huber_loss(xt2, xt1, c_data)
         weight = cast_dim((1 / (t2 - t1)), loss.ndim)
@@ -147,12 +147,12 @@ class ConsistencyTrainer:
                     config["huber_const"]
                 )
 
-                parallel_state = replicate(unreplicate(parallel_state).replace(
+                parallel_state = parallel_state.replace(
                     ema_params=update_ema(
                         parallel_state.ema_params,
                         parallel_state.params,
                         self.config["ema_decay"])
-                ))
+                )
 
                 loss = unreplicate(parallel_loss)
                 steps.set_postfix(loss=loss)
@@ -164,14 +164,12 @@ class ConsistencyTrainer:
                     cumulative_loss = 0
                     wandb.log({"step": step, "train_loss": avg_loss})
 
-                state = unreplicate(parallel_state)
-
                 save_checkpoint = (
                     step + 1) % self.config["checkpoint_frequency"] == 0
                 save_snapshot = self.config["create_snapshots"] and (step == 0 or (
                     step + 1) % self.config["snapshot_frequency"] == 0)
                 self._save(
-                    state, step, save_checkpoint, save_snapshot)
+                    parallel_state, step, save_checkpoint, save_snapshot)
 
                 run_eval = self.config["run_evals"] and (
                     step + 1) % self.config["eval_frequency"] == 0
@@ -195,7 +193,7 @@ class ConsistencyTrainer:
     def save_snapshot(self, step):
         outputs = sample_single_step(self.snapshot_key,
                                      self.state.apply_fn,
-                                     self.state.params_ema,
+                                     self.state.ema_params,
                                      self.device_batch_shape,
                                      self.consistency_config["sigma_data"],
                                      self.consistency_config["sigma_min"],
@@ -264,5 +262,3 @@ class ConsistencyTrainer:
 
         score = fid.compute_fid(eval_dir, dataset_name="cifar10",
                                 dataset_res=32, dataset_split="test", device=torch.device('cpu'))
-
-        return score
