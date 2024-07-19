@@ -238,7 +238,7 @@ class ConsistencyTrainer:
     def run_eval(self):
         eval_dir = f"../eval/synthetic"
         os.makedirs(eval_dir, exist_ok=True)
-        num_synthetic_samples = 1000
+        num_synthetic_samples = 10_000
 
         sample_key = random.key(0)
 
